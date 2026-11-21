@@ -1,6 +1,7 @@
 #include <Arduino.h>
 
 constexpr uint8_t BUTTON_PIN = 7;
+constexpr uint32_t DEBOUNCE_MS = 50;
 
 volatile uint32_t interruptCount = 0;
 
@@ -16,10 +17,21 @@ void setup() {
 }
 
 void loop() {
-  static uint32_t lastPrinted = 0;
+  static uint32_t lastSeenInterrupts = 0;
+  static uint32_t lastAcceptedMs = 0;
+  static uint32_t acceptedCount = 0;
+
   const uint32_t current = interruptCount;
-  if (current != lastPrinted) {
-    Serial.printf("Interrupts: %lu (+%lu)\n", current, current - lastPrinted);
-    lastPrinted = current;
+  if (current == lastSeenInterrupts) {
+    return;
   }
+  lastSeenInterrupts = current;
+
+  const uint32_t nowMs = millis();
+  if (nowMs - lastAcceptedMs < DEBOUNCE_MS) {
+    return;
+  }
+  lastAcceptedMs = nowMs;
+  acceptedCount++;
+  Serial.printf("Accepted: %lu | raw interrupts: %lu\n", acceptedCount, current);
 }
