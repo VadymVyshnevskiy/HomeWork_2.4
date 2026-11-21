@@ -18,20 +18,28 @@ void setup() {
 
 void loop() {
   static uint32_t lastSeenInterrupts = 0;
-  static uint32_t lastAcceptedMs = 0;
+  static uint32_t lastEventMs = 0;
+  static bool eventPending = false;
+  static bool isHeld = false;
   static uint32_t acceptedCount = 0;
 
-  const uint32_t current = interruptCount;
-  if (current == lastSeenInterrupts) {
-    return;
-  }
-  lastSeenInterrupts = current;
-
   const uint32_t nowMs = millis();
-  if (nowMs - lastAcceptedMs < DEBOUNCE_MS) {
+  const uint32_t current = interruptCount;
+  if (current != lastSeenInterrupts) {
+    lastSeenInterrupts = current;
+    lastEventMs = nowMs;
+    eventPending = true;
+  }
+
+  if (nowMs - lastEventMs < DEBOUNCE_MS) {
     return;
   }
-  lastAcceptedMs = nowMs;
-  acceptedCount++;
-  Serial.printf("Accepted: %lu | raw interrupts: %lu\n", acceptedCount, current);
+
+  const bool isPressed = digitalRead(BUTTON_PIN) == LOW;
+  if (eventPending && isPressed && !isHeld) {
+    acceptedCount++;
+    Serial.printf("Pressed: %lu | raw interrupts: %lu\n", acceptedCount, current);
+  }
+  isHeld = isPressed;
+  eventPending = false;
 }
