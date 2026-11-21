@@ -1,45 +1,84 @@
 #include <Arduino.h>
 
 constexpr uint8_t BUTTON_PIN = 7;
+constexpr uint32_t POLL_INTERVAL_MS = 10;
 constexpr uint32_t DEBOUNCE_MS = 50;
 
-volatile uint32_t interruptCount = 0;
+class DebouncedButton {
+public:
+  explicit DebouncedButton(uint8_t pin) : pin(pin) {}
 
-void IRAM_ATTR onButtonFalling() {
-  interruptCount++;
-}
+  void begin() {
+    pinMode(pin, INPUT);
+  }
+
+  bool update(uint32_t nowMs) {
+    const bool isLow = digitalRead(pin) == LOW;
+    switch (state) {
+      case State::Released:
+        if (isLow) {
+          state = State::MaybePressed;
+          stateSinceMs = nowMs;
+        }
+        return false;
+
+      case State::MaybePressed:
+        if (!isLow) {
+          state = State::Released;
+          return false;
+        }
+        if (nowMs - stateSinceMs < DEBOUNCE_MS) {
+          return false;
+        }
+        state = State::Pressed;
+        return true;
+
+      case State::Pressed:
+        if (!isLow) {
+          state = State::MaybeReleased;
+          stateSinceMs = nowMs;
+        }
+        return false;
+
+      case State::MaybeReleased:
+        if (isLow) {
+          state = State::Pressed;
+        } else if (nowMs - stateSinceMs >= DEBOUNCE_MS) {
+          state = State::Released;
+        }
+        return false;
+    }
+    return false;
+  }
+
+private:
+  enum class State { Released, MaybePressed, Pressed, MaybeReleased };
+
+  const uint8_t pin;
+  State state = State::Released;
+  uint32_t stateSinceMs = 0;
+};
+
+DebouncedButton button(BUTTON_PIN);
 
 void setup() {
   Serial.begin(115200);
-  pinMode(BUTTON_PIN, INPUT);
-  attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), onButtonFalling, FALLING);
+  button.begin();
   Serial.println("Ready. Press the button.");
 }
 
 void loop() {
-  static uint32_t lastSeenInterrupts = 0;
-  static uint32_t lastEventMs = 0;
-  static bool eventPending = false;
-  static bool isHeld = false;
-  static uint32_t acceptedCount = 0;
+  static uint32_t lastPollMs = 0;
+  static uint32_t pressCount = 0;
 
   const uint32_t nowMs = millis();
-  const uint32_t current = interruptCount;
-  if (current != lastSeenInterrupts) {
-    lastSeenInterrupts = current;
-    lastEventMs = nowMs;
-    eventPending = true;
-  }
-
-  if (nowMs - lastEventMs < DEBOUNCE_MS) {
+  if (nowMs - lastPollMs < POLL_INTERVAL_MS) {
     return;
   }
+  lastPollMs = nowMs;
 
-  const bool isPressed = digitalRead(BUTTON_PIN) == LOW;
-  if (eventPending && isPressed && !isHeld) {
-    acceptedCount++;
-    Serial.printf("Pressed: %lu | raw interrupts: %lu\n", acceptedCount, current);
+  if (button.update(nowMs)) {
+    pressCount++;
+    Serial.printf("Pressed: %lu\n", pressCount);
   }
-  isHeld = isPressed;
-  eventPending = false;
 }
